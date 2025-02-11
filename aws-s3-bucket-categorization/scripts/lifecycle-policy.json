@@ -1,0 +1,25 @@
+{
+    "Rules": [
+        {
+            "ID": "DeleteObjectsAfter1Day",
+            "Prefix": "",
+            "Status": "Enabled",
+            "Filter": {
+                "And": {
+                    "Prefix": "",
+                    "Tags": []
+                }
+            },
+            "Expiration": {
+                "Days": 1
+            },
+            "NoncurrentVersionExpiration": {
+                "NoncurrentDays": 1,
+                "NewerNoncurrentVersions": 0
+            },
+            "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": 1
+            }
+        }
+    ]
+}
