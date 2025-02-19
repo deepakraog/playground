@@ -42,14 +42,35 @@ for BUCKET in "${bucket_array[@]}"; do
 
   existing_buckets+=("$BUCKET")  # Only add existing buckets
 
-  # Try to delete the bucket first
-  echo "🚀 Attempting to delete bucket: $BUCKET"
-  if aws s3 rb "s3://$BUCKET" --force >/dev/null 2>&1; then
+  # Retry deleting the bucket for up to 30 seconds
+  echo "🚀 Attempting to delete bucket $BUCKET for up to 30s..."
+  start_time=$(date +%s)
+  delete_success="false"
+
+  while true; do
+    if aws s3 rb "s3://$BUCKET" --force >/dev/null 2>&1; then
+      delete_success="true"
+      break
+    fi
+
+    current_time=$(date +%s)
+    elapsed=$(( current_time - start_time ))
+    if [ "$elapsed" -ge 30 ]; then
+      echo "⏰ Timed out after 30s. Bucket $BUCKET is not fully deleted."
+      break
+    fi
+
+    echo "⚠️ Bucket $BUCKET not yet deleted. Retrying in 3 seconds..."
+    sleep 3
+  done
+
+  if [ "$delete_success" == "true" ]; then
     echo "✅ Bucket $BUCKET deleted successfully."
-    continue  # Skip applying lifecycle policy since bucket is deleted
-  else
-    echo "⚠️ Bucket $BUCKET could not be deleted. Applying lifecycle policy..."
+    echo "----------------------------------------------"
+    continue  # No need to apply lifecycle policy
   fi
+
+  echo "⚠️ Bucket $BUCKET not fully deleted after 30 seconds. Applying lifecycle policy..."
 
   # Create a temporary lifecycle policy JSON file
   tmp_policy_file="$(mktemp)"
@@ -58,20 +79,16 @@ for BUCKET in "${bucket_array[@]}"; do
   "Rules": [
     {
       "ID": "DeleteObjectsAfter1Day",
-      "Prefix": "",
       "Status": "Enabled",
       "Filter": {
-        "And": {
-          "Prefix": "",
-          "Tags": []
-        }
+        "Prefix": ""
       },
       "Expiration": {
+        "ExpiredObjectDeleteMarker": true,
         "Days": 1
       },
       "NoncurrentVersionExpiration": {
-        "NoncurrentDays": 1,
-        "NewerNoncurrentVersions": 0
+        "NoncurrentDays": 1
       },
       "AbortIncompleteMultipartUpload": {
         "DaysAfterInitiation": 1
@@ -83,12 +100,13 @@ EOL
 
   echo "🚀 Applying lifecycle policy to bucket: $BUCKET"
 
-  # Apply the lifecycle policy
-  if aws s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" --lifecycle-configuration file://"$tmp_policy_file" >/dev/null 2>&1; then
-    echo "✅ Lifecycle policy applied successfully to $BUCKET"
+  if aws s3api put-bucket-lifecycle-configuration \
+         --bucket "$BUCKET" \
+         --lifecycle-configuration file://"$tmp_policy_file" >/dev/null 2>&1; then
+    echo "✅ Lifecycle policy applied successfully to $BUCKET."
   else
-    echo "❌ Failed to apply lifecycle policy to $BUCKET"
-    failed_deletions+=("$BUCKET")  # Track only existing buckets that couldn't be deleted
+    echo "❌ Failed to apply lifecycle policy to $BUCKET."
+    failed_deletions+=("$BUCKET")
   fi
 
   # Clean up temporary lifecycle policy file

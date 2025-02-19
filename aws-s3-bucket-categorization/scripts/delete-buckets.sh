@@ -80,7 +80,6 @@ delete_page_one_by_one() {
     local tmp_single
     tmp_single="$(mktemp)"
 
-    # Use jq to ensure valid JSON quoting, to avoid shell interpolation issues:
     jq -n --arg k "$key" --arg v "$version_id" \
        '{Objects: [{Key: $k, VersionId: $v}]}' \
        > "$tmp_single"
@@ -98,73 +97,105 @@ delete_page_one_by_one() {
   done
 
   if [ "$total_skipped" -gt 0 ]; then
-    echo "⚠️ Skipped $total_skipped objects in bucket $bucket_name because of MalformedXML or other errors."
+    echo "⚠️ Skipped $total_skipped objects in bucket $bucket_name because of repeated errors."
   fi
 }
 
 ########################################
 # delete_page_batch
-#   Try deleting up to N objects in one go. If we get MalformedXML,
-#   fallback to one-by-one deletion.
+#   Breaks large payload into sub-chunks of up to 1000 objects each.
+#   If we get MalformedXML in a chunk, we fall back to one-by-one deletion
+#   for that chunk only.
 ########################################
 delete_page_batch() {
   local bucket_name="$1"
   local payload_file="$2"
 
-  local batch_count
-  batch_count="$(jq '[.Objects[]] | length' "$payload_file" 2>/dev/null || echo 0)"
-  if [ "$batch_count" -eq 0 ]; then
+  # Load all objects from the payload
+  local objects_json
+  objects_json="$(jq -c '.Objects' "$payload_file" 2>/dev/null || echo '[]')"
+
+  # Convert into an array of objects
+  local total_objects
+  total_objects="$(echo "$objects_json" | jq 'length')"
+  if [ "$total_objects" -eq 0 ]; then
     echo "📝 No valid objects to delete in this batch."
     return
   fi
 
-  echo "🗑️ Deleting $batch_count objects from $bucket_name (batch delete)."
+  echo "🗑️ Deleting $total_objects objects from $bucket_name (batch delete)."
 
-  # Attempt the batch delete
-  set +e
-  local output
-  output="$(aws s3api delete-objects \
-    --bucket "$bucket_name" \
-    --delete "file://$payload_file" 2>&1)"
-  local rc=$?
-  set -e
+  local chunk_size=1000  # AWS limit for delete-objects
+  local start=0
 
-  if [ $rc -ne 0 ]; then
-    if echo "$output" | grep -qi "MalformedXML"; then
-      echo "⚠️ MalformedXML encountered in batch. Falling back to one-by-one deletion..."
-      delete_page_one_by_one "$bucket_name" "$payload_file"
-    else
-      echo "⚠️ Batch deletion failed for another reason. Output:"
-      echo "$output"
-      # Decide if you want to abort or keep going. We'll keep going for now.
+  while [ $start -lt $total_objects ]; do
+    local end=$(( start + chunk_size - 1 ))
+    if [ $end -ge $(( total_objects - 1 )) ]; then
+      end=$(( total_objects - 1 ))
     fi
-  fi
+
+    # Extract a sub-array of up to 1000 objects
+    local chunk
+    chunk="$(echo "$objects_json" | jq ".[$start:$(( end + 1 ))]")"
+    local chunk_count
+    chunk_count="$(echo "$chunk" | jq 'length')"
+
+    # Write a temporary payload for this chunk
+    local tmp_payload
+    tmp_payload="$(mktemp)"
+    echo "{\"Objects\": $chunk}" > "$tmp_payload"
+
+    echo "   • Deleting chunk of $chunk_count objects..."
+
+    # Attempt the batch delete for this chunk
+    set +e
+    local output
+    output="$(aws s3api delete-objects \
+      --bucket "$bucket_name" \
+      --delete "file://$tmp_payload" 2>&1)"
+    local rc=$?
+    set -e
+
+    if [ $rc -ne 0 ]; then
+      if echo "$output" | grep -qi "MalformedXML"; then
+        echo "⚠️ MalformedXML in this chunk. Falling back to one-by-one..."
+        delete_page_one_by_one "$bucket_name" "$tmp_payload"
+      else
+        echo "⚠️ Batch deletion failed for another reason in this chunk. Output:"
+        echo "$output"
+        # Fallback to one-by-one for the chunk to be safe
+        delete_page_one_by_one "$bucket_name" "$tmp_payload"
+      fi
+    fi
+
+    rm -f "$tmp_payload"
+
+    start=$(( end + 1 ))
+  done
 }
 
 ########################################
 # clear_bucket_contents
-#   Lists + deletes objects in pages of up to 10,000. 
-#   Only does a single initial count (and final count, if desired).
+#   Lists + deletes objects in pages of up to 10,000 from S3.
+#   Then, for each page, we chunk the deletes into 1,000-object sub-batches.
 ########################################
 clear_bucket_contents() {
   local bucket_name="$1"
 
   # Single initial count (optional final count below)
   local initial_count
-  initial_count="$(count_bucket_objects "$bucket_name")"
+  #initial_count="$(count_bucket_objects "$bucket_name")"
   echo "🚀 Clearing all objects from bucket: $bucket_name (Total objects: $initial_count)"
 
   local deleted_objects=0
   local next_token=""
 
-  # We'll loop over pages until there's no next_token (or list fails).
   while true; do
-    # Temp files for this "page"
     local tmp_list tmp_to_delete
     tmp_list="$(mktemp)"
     tmp_to_delete="$(mktemp)"
 
-    # List up to 10,000 objects in this page
+    # List up to 10,000 objects (versions+markers) per iteration
     if [[ -n "$next_token" && "$next_token" != "null" ]]; then
       if ! aws s3api list-object-versions \
         --bucket "$bucket_name" \
@@ -190,7 +221,7 @@ clear_bucket_contents() {
       fi
     fi
 
-    # Build the batch payload
+    # Build the "Objects" payload combining Versions + DeleteMarkers
     jq -c '{
       "Objects": (
         ((.Versions // []) + (.DeleteMarkers // []))
@@ -201,20 +232,19 @@ clear_bucket_contents() {
       )
     }' "$tmp_list" > "$tmp_to_delete"
 
-    # Do a batch delete (with fallback for MalformedXML)
+    # Use delete_page_batch to chunk & delete up to 1000 objects at a time
     delete_page_batch "$bucket_name" "$tmp_to_delete"
 
-    # Update our overall "attempted to delete" count
+    # Update "attempted to delete" count
     local just_deleted
     just_deleted="$(jq '[.Objects[]] | length' "$tmp_to_delete" 2>/dev/null || echo 0)"
     deleted_objects=$((deleted_objects + just_deleted))
 
-    # Check for pagination
+    # Get the NextToken for pagination
     next_token="$(jq -r '.NextToken' "$tmp_list" 2>/dev/null || echo "")"
 
     rm -f "$tmp_list" "$tmp_to_delete"
 
-    # If there's no next_token, we've reached the end
     if [[ -z "$next_token" || "$next_token" == "null" ]]; then
       break
     fi
@@ -222,12 +252,12 @@ clear_bucket_contents() {
 
   echo "🗑️ Attempted to delete $deleted_objects objects total in $bucket_name."
 
-  # (Optional) Final count, if you want to see how many remain
+  # (Optional) Final count if desired
   local final_count
-  final_count="$(count_bucket_objects "$bucket_name")"
+  #final_count="$(count_bucket_objects "$bucket_name")"
   echo "🔎 Final count of objects in $bucket_name: $final_count"
 
-  # Disable versioning
+  # Disable versioning to prevent new versions from being created
   echo "🚀 Disabling versioning on bucket: $bucket_name"
   aws s3api put-bucket-versioning \
     --bucket "$bucket_name" \
@@ -258,7 +288,8 @@ delete_cloudformation_stack() {
       || echo "false"
   )"
 
-  if [ "$protection_status" == "true" ]; then
+  echo "protection_status $protection_status"
+  if [ "$protection_status" == "True" ]; then
     echo "⚠️ Termination Protection is enabled for stack: $stack_name. Disabling it now..."
     if ! aws cloudformation update-termination-protection \
          --stack-name "$stack_name" \
@@ -276,7 +307,7 @@ delete_cloudformation_stack() {
     echo "⏳ Waiting for CloudFormation stack $stack_name to be deleted..."
 
     if ! aws cloudformation wait stack-delete-complete --stack-name "$stack_name" >/dev/null 2>&1; then
-      # We got an error waiting for deletion. Let's check if it's due to an export in use.
+      # We got an error waiting for deletion. Let's check if it's due to an export in use
       local reason
       reason="$(
         aws cloudformation describe-stack-events \
