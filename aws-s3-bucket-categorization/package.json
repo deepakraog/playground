@@ -6,6 +6,8 @@
     "fetch": "ts-node fetchAwsConfig.ts",
     "clean": "ts-node cleanS3Buckets.ts",
     "category": "ts-node categorizeS3Buckets.ts",
+    "securityhub-ssl": "ts-node security-insight-no-ssl.ts",
+    "securityhub-no-pub": "ts-node security-insight-block-pub-access.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -16,6 +18,7 @@
     "@aws-sdk/client-cloudformation": "^3.749.0",
     "@aws-sdk/client-codecommit": "^3.741.0",
     "@aws-sdk/client-s3": "^3.749.0",
+    "@aws-sdk/client-securityhub": "^3.749.0",
     "child_process": "^1.0.2",
     "dotenv": "^16.4.7",
     "exceljs": "^4.4.0",
