@@ -3,13 +3,16 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "fetch": "ts-node fetchAwsConfig.ts",
-    "clean": "ts-node cleanS3Buckets.ts",
-    "category": "ts-node categorizeS3Buckets.ts",
-    "securityhub-ssl": "ts-node security-insight-no-ssl.ts",
-    "securityhub-no-pub": "ts-node security-insight-block-pub-access.ts",
+    "fetch": "node --loader ts-node/esm fetchAwsConfig.ts",
+    "clean": "node --loader ts-node/esm cleanS3Buckets.ts",
+    "category": "node --loader ts-node/esm categorizeS3Buckets.ts",
+    "scheduleSecurityMgr": "node --loader ts-node/esm schedule-clean-secrets-manager.ts",
+    "securityhub-ssl": "node --loader ts-node/esm security-insight-no-ssl.ts",
+    "securityhub-no-pub": "node --loader ts-node/esm security-insight-block-pub-access.ts",
+    "securityhub-secrets-mgr": "node --loader ts-node/esm security-insight-secrets-mgr.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "type": "module",
   "keywords": [],
   "author": "DRG",
   "license": "ISC",
@@ -18,11 +21,19 @@
     "@aws-sdk/client-cloudformation": "^3.749.0",
     "@aws-sdk/client-codecommit": "^3.741.0",
     "@aws-sdk/client-s3": "^3.749.0",
+    "@aws-sdk/client-secrets-manager": "^3.758.0",
     "@aws-sdk/client-securityhub": "^3.749.0",
     "child_process": "^1.0.2",
     "dotenv": "^16.4.7",
     "exceljs": "^4.4.0",
     "fs": "^0.0.1-security",
     "path": "^0.12.7"
+  },
+  "engines": {
+    "node": ">=20.18.0",
+    "npm": ">=9.0.0"
+  },
+  "devDependencies": {
+    "ts-node": "^10.4.0"
   }
 }

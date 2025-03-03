@@ -629,10 +629,11 @@ async function main() {
   }
 }
 
-// If invoked directly:
-if (require.main === module) {
-  main().catch((err) => {
-    console.error(err);
+(async () => {
+  try {
+    await main();
+  } catch (err) {
+    console.error("Failed to cleanup buckets", err);
     process.exit(1);
-  });
-}
+  }
+})();
