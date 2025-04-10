@@ -6,6 +6,7 @@
     "fetch": "node --loader ts-node/esm fetchAwsConfig.ts",
     "clean": "node --loader ts-node/esm cleanS3Buckets.ts",
     "category": "node --loader ts-node/esm categorizeS3Buckets.ts",
+    "rename": "node --loader ts-node/esm rename-secrets.ts",
     "scheduleSecurityMgr": "node --loader ts-node/esm schedule-clean-secrets-manager.ts",
     "securityhub-ssl": "node --loader ts-node/esm security-insight-no-ssl.ts",
     "securityhub-no-pub": "node --loader ts-node/esm security-insight-block-pub-access.ts",

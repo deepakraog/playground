@@ -1,3 +1,4 @@
+
 import {
   SecretsManagerClient,
   DescribeSecretCommand,
@@ -7,6 +8,7 @@ import {
   CloudFormationClient,
   DeleteStackCommand,
 } from "@aws-sdk/client-cloudformation";
+
 
 function printUsage(): void {
   console.log(`
@@ -21,6 +23,11 @@ Examples:
   ts-node scheduleCleanSecretsManager.ts "sm1,sm2,sm3" 10
   ts-node scheduleCleanSecretsManager.ts "sm1,sm2,sm3"
 `);
+}
+
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 interface ParsedArgs {
@@ -106,6 +113,7 @@ async function scheduleDeletion(
         // ForceDeleteWithoutRecovery: true,
       })
     );
+    await delay(1000); // Adding a delay to avoid throttling
     console.log(`Successfully scheduled deletion for "${secretName}".`);
   } catch (error) {
     console.error(`Failed to process secret "${secretName}":`, error);

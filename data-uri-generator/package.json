@@ -1,0 +1,34 @@
+{
+  "name": "data-uri-generator",
+  "version": "1.0.0",
+  "description": "A tool to generate data URIs from files, including intentionally malformed ones",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && node dist/cli.js",
+    "dev": "ts-node src/cli.ts",
+    "sniff": "ts-node src/sniff.ts"
+  },
+  "keywords": [
+    "data-uri",
+    "base64",
+    "encode",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "mime-types": "3.0.1",
+    "commander": "13.1.0"
+  },
+  "devDependencies": {
+    "@types/mime-types": "^2.1.1",
+    "@types/node": "22.14.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.1.6"
+  },
+  "bin": {
+    "data-uri": "./dist/cli.js"
+  }
+}
